@@ -20,21 +20,12 @@ namespace Stashie
 {
     public class StashieCore : BaseSettingsPlugin<StashieSettings>
     {
-        private const int WhileDelay = 5;
-        private const int InputDelay = 15;
-        private const string CoroutineName = "Drop To Stash";
         private readonly Stopwatch _debugTimer = new Stopwatch();
 
         private Vector2 _clickWindowOffset;
-        private List<FilterResult> _dropItems;
-        private List<ListIndexNode> _settingsListNodes;
+        private List<ItemData> _dropItems;
         private uint _coroutineIteration;
         private Coroutine _coroutineWorker;
-        private string[] _stashTabNamesByIndex;
-        private Coroutine _stashTabNamesCoroutine;
-        private const int MaxShownSidebarStashTabs = 31;
-        private NormalInventoryItem lastHoverItem;
-        private bool secondaryFilterActive = false;
 
         public StashieCore()
         {
@@ -50,45 +41,6 @@ namespace Stashie
 
             return true;
         }
-
-        public override void AreaChange(AreaInstance area)
-        {
-            if (_stashTabNamesCoroutine == null) return;
-            if (_stashTabNamesCoroutine.Running)
-            {
-                if(!area.IsHideout && !area.IsTown && 
-                    !area.DisplayName.Contains("Azurite Mine") && 
-                    !area.DisplayName.Contains("Tane's Laboratory"))
-                    _stashTabNamesCoroutine?.Pause();
-            }
-            else
-            {
-                if (area.IsHideout || 
-                    area.IsTown ||
-                    area.DisplayName.Contains("Azurite Mine") ||
-                    area.DisplayName.Contains("Tane's Laboratory"))
-                    _stashTabNamesCoroutine?.Resume();
-            }
-        }
-
-        private static void WriteToNonExistentFile(string path, string content)
-        {
-            if (File.Exists(path)) return;
-
-            using (var streamWriter = new StreamWriter(path, true))
-            {
-                streamWriter.Write(content);
-                streamWriter.Close();
-            }
-        }
-
-        private void SaveDefaultConfigsToDisk()
-        {
-            var path = $"{DirectoryFullName}\\GitUpdateConfig.txt";
-            const string gitUpdateConfig = "Owner:nymann\r\n" + "Name:Stashie\r\n" + "Release\r\n";
-            WriteToNonExistentFile(path, gitUpdateConfig);
-        }
-
         public override void DrawSettings()
         {
             DrawIgnoredCellsSettings();
@@ -231,7 +183,7 @@ namespace Stashie
             var invItems = inventory.InventorySlotItems;
 
             yield return new WaitFunctionTimed(() => invItems != null,true,500, "ServerInventory->InventSlotItems is null!");
-            _dropItems = new List<FilterResult>();
+            _dropItems = new List<ItemData>();
             _clickWindowOffset = GameController.Window.GetWindowRectangle().TopLeft;
             foreach (var invItem in invItems)
             {
@@ -240,8 +192,7 @@ namespace Stashie
                 var baseItemType = GameController.Files.BaseItemTypes.Translate(invItem.Item.Path);
 
                 var testItem = new ItemData(invItem, baseItemType, calculateClickPos(invItem));
-                var result = new FilterResult(null, testItem);
-                _dropItems.Add(result);
+                _dropItems.Add(testItem);
             }
         }
         private Vector2 calculateClickPos(InventSlotItem invItem)
@@ -282,12 +233,9 @@ namespace Stashie
         {
             PublishEvent("stashie_start_drop_items", null);
 
-            var itemsSortedByStash = _dropItems.OrderBy(x => x.StashIndex).ToList();
-            var waitedItems = new List<FilterResult>(8);
-
             Input.KeyDown(Keys.LControlKey);
-            LogMessage($"Want to drop {itemsSortedByStash.Count} items.");
-            foreach(var stashresult in itemsSortedByStash)
+            LogMessage($"Want to drop {_dropItems.Count} items.");
+            foreach(var stashresult in _dropItems)
             {
                 _coroutineIteration++;
                 _coroutineWorker?.UpdateTicks(_coroutineIteration);
@@ -301,9 +249,9 @@ namespace Stashie
             }
         }
 
-        private IEnumerator StashItem(FilterResult stashresult)
+        private IEnumerator StashItem(ItemData stashresult)
         {
-            Input.SetCursorPos(stashresult.ClickPos + _clickWindowOffset);
+            Input.SetCursorPos(stashresult.clientRect + _clickWindowOffset);
             yield return new WaitTime(Settings.HoverItemDelay);
 
             Input.Click(MouseButtons.Left);
